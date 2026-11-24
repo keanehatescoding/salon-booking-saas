@@ -55,22 +55,24 @@ export const sessions = pgTable(
   (t) => [index("sessions_user_idx").on(t.userId)],
 );
 
-export const businesses = pgTable("businesses", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  ownerId: uuid("owner_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  slug: text("slug").notNull(),
-  phone: text("phone").notNull(),
-  neighbourhood: text("neighbourhood").notNull(),
-  mpesaTill: text("mpesa_till"),
-  // Minimum deposit required to confirm a booking, in KES. Zero disables deposits.
-  depositKes: integer("deposit_kes").notNull().default(0),
-  ...timestamps,
-});
-
-export const businessSlugIdx = uniqueIndex("businesses_slug_idx").on(businesses.slug);
+export const businesses = pgTable(
+  "businesses",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    phone: text("phone").notNull(),
+    neighbourhood: text("neighbourhood").notNull(),
+    mpesaTill: text("mpesa_till"),
+    // Minimum deposit required to confirm a booking, in KES. Zero disables deposits.
+    depositKes: integer("deposit_kes").notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("businesses_slug_idx").on(t.slug)],
+);
 
 export const services = pgTable(
   "services",
