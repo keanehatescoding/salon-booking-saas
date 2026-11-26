@@ -22,6 +22,7 @@ function withDeadline<T>(promise: Promise<T>): Promise<T> {
 
 export async function GET() {
   let client: PoolClient | undefined;
+  let healthy = false;
   try {
     client = await pool.connect();
     // connectionTimeoutMillis covers connection setup; the statement timeout
@@ -29,6 +30,7 @@ export async function GET() {
     // client is discarded in finally.
     await withDeadline(client.query("SET statement_timeout = 5000"));
     await withDeadline(client.query("select 1"));
+    healthy = true;
     return Response.json({ ok: true });
   } catch (err) {
     // Log the cause but keep the response minimal: the platform only needs to
@@ -36,7 +38,8 @@ export async function GET() {
     console.error("Health check failed: the database didn't answer", err);
     return Response.json({ ok: false }, { status: 503 });
   } finally {
-    // Return the client to the pool for reuse.
-    client?.release();
+    // Reuse the client only after a completed probe. A failed or timed-out
+    // probe can leave a query pending, so destroy that client.
+    client?.release(!healthy);
   }
 }
