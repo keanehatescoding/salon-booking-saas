@@ -36,8 +36,7 @@ export async function GET() {
     console.error("Health check failed: the database didn't answer", err);
     return Response.json({ ok: false }, { status: 503 });
   } finally {
-    // A timed-out query may still be in flight on the server. Discard this
-    // client rather than returning a possibly-stalled session to the pool.
-    client?.release(true);
+    // Return the client to the pool for reuse.
+    client?.release();
   }
 }
