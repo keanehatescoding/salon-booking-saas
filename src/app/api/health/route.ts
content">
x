@@ -1,0 +1,36 @@
+import type { PoolClient } from "pg";
+import { pool } from "@/db";
+
+export const dynamic = "force-dynamic";
+
+const DEADLINE_MS = 5_000;
+
+function withDeadline<T>(promise: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error("health probe timed out")), DEADLINE_MS);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+export async function GET() {
+  let client: PoolClient | undefined;
+  let discard = false;
+  try {
+    client = await pool.connect();
+    await withDeadline(client.query("SET statement_timeout = 5000"));
+    await withDeadline(client.query("select 1"));
+    return Response.json({ ok: true });
+  } catch (err) {
+    discard = true;
+    console.error("Health check failed: the database didn't answer", err);
+    return Response.json({ ok: false }, { status: 503 });
+  } finally {
+    if (client) {
+      if (discard) client.release(true);
+      else client.release();
+    }
+  }
+}
