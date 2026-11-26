@@ -26,8 +26,8 @@ export async function GET() {
   try {
     client = await pool.connect();
     // connectionTimeoutMillis covers connection setup; the statement timeout
-    // covers execution on this checked-out session. Neither leaks because the
-    // client is discarded in finally.
+    // covers execution on this checked-out session. The setting is reset before
+    // the client returns to the pool (see finally), so it never leaks.
     await withDeadline(client.query("SET statement_timeout = 5000"));
     await withDeadline(client.query("select 1"));
     healthy = true;
@@ -39,7 +39,16 @@ export async function GET() {
     return Response.json({ ok: false }, { status: 503 });
   } finally {
     // Reuse the client only after a completed probe. A failed or timed-out
-    // probe can leave a query pending, so destroy that client.
-    client?.release(!healthy);
+    // probe can leave a query pending, so destroy that client. On success,
+    // reset the session-level statement_timeout before returning the client to
+    // the shared pool so a later application query isn't cancelled at 5s.
+    if (client) {
+      let reusable = healthy;
+      if (reusable) {
+        reusable = await withDeadline(client.query("RESET statement_timeout"))
+          .then(() => true, () => false);
+      }
+      client.release(!reusable);
+    }
   }
 }
