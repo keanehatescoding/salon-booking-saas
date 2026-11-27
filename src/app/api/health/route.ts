@@ -22,13 +22,15 @@ function withDeadline<T>(promise: Promise<T>): Promise<T> {
 
 export async function GET() {
   let client: PoolClient | undefined;
+  let healthy = false;
   try {
     client = await pool.connect();
     // connectionTimeoutMillis covers connection setup; the statement timeout
-    // covers execution on this checked-out session. Neither leaks because the
-    // client is discarded in finally.
+    // covers execution on this checked-out session. The setting is reset before
+    // the client returns to the pool (see finally), so it never leaks.
     await withDeadline(client.query("SET statement_timeout = 5000"));
     await withDeadline(client.query("select 1"));
+    healthy = true;
     return Response.json({ ok: true });
   } catch (err) {
     // Log the cause but keep the response minimal: the platform only needs to
@@ -36,8 +38,17 @@ export async function GET() {
     console.error("Health check failed: the database didn't answer", err);
     return Response.json({ ok: false }, { status: 503 });
   } finally {
-    // A timed-out query may still be in flight on the server. Discard this
-    // client rather than returning a possibly-stalled session to the pool.
-    client?.release(true);
+    // Reuse the client only after a completed probe. A failed or timed-out
+    // probe can leave a query pending, so destroy that client. On success,
+    // reset the session-level statement_timeout before returning the client to
+    // the shared pool so a later application query isn't cancelled at 5s.
+    if (client) {
+      let reusable = healthy;
+      if (reusable) {
+        reusable = await withDeadline(client.query("RESET statement_timeout"))
+          .then(() => true, () => false);
+      }
+      client.release(!reusable);
+    }
   }
 }
